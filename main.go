@@ -29,6 +29,8 @@ import (
 	// _ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	"gitlab.com/4406arthur/mlass_kubewatcher/pkg/controller"
 	"gitlab.com/4406arthur/mlass_kubewatcher/pkg/signals"
+	"gopkg.in/confluentinc/confluent-kafka-go.v1/kafka"
+	_ "gopkg.in/confluentinc/confluent-kafka-go.v1/kafka/librdkafka"
 )
 
 var (
@@ -55,8 +57,15 @@ func main() {
 
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
 
-	controller := controller.NewController(kubeClient,
-		kubeInformerFactory.Core().V1().Pods())
+	p, err := kafka.NewProducer(&kafka.ConfigMap{"bootstrap.servers": "35.223.134.204:32768"})
+	if err != nil {
+		panic(err)
+	}
+
+	controller := controller.NewController(
+		kubeClient,
+		kubeInformerFactory.Core().V1().Pods(),
+		p)
 
 	// notice that there is no need to run Start methods in a separate goroutine. (i.e. go kubeInformerFactory.Start(stopCh)
 	// Start method is non-blocking and runs all registered informers in a dedicated goroutine.

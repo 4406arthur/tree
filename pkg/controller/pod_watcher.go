@@ -17,9 +17,13 @@ limitations under the License.
 package controller
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
+	"gopkg.in/confluentinc/confluent-kafka-go.v1/kafka"
+	_ "gopkg.in/confluentinc/confluent-kafka-go.v1/kafka/librdkafka"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -57,13 +61,9 @@ const (
 type Controller struct {
 	// kubeclientset is a standard kubernetes clientset
 	kubeclientset kubernetes.Interface
-	// sampleclientset is a clientset for our own API group
-	// sampleclientset clientset.Interface
 
 	podsLister corelisters.PodLister
 	podsSynced cache.InformerSynced
-	// foosLister        listers.FooLister
-	// foosSynced        cache.InformerSynced
 
 	// workqueue is a rate limited work queue. This is used to queue work to be
 	// processed instead of performing it as soon as a change happens. This
@@ -74,12 +74,20 @@ type Controller struct {
 	// recorder is an event recorder for recording Event resources to the
 	// Kubernetes API.
 	recorder record.EventRecorder
+	producer *kafka.Producer
+}
+
+type message struct {
+	Project  string `json:"project"`
+	Script   string `json:"script"`
+	ExitCode int32  `json:"exitCode"`
 }
 
 // NewController returns a new sample controller
 func NewController(
 	kubeclientset kubernetes.Interface,
-	podInformer coreinformers.PodInformer) *Controller {
+	podInformer coreinformers.PodInformer,
+	producer *kafka.Producer) *Controller {
 
 	klog.V(4).Info("Creating event broadcaster")
 	eventBroadcaster := record.NewBroadcaster()
@@ -95,6 +103,7 @@ func NewController(
 
 		workqueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "watcher"),
 		recorder:  recorder,
+		producer:  producer,
 	}
 
 	klog.Info("Setting up event handlers")
@@ -234,16 +243,44 @@ func (c *Controller) syncHandler(key string) error {
 		return err
 	}
 
-	Status := pod.Status
-	if Status.String() == "Succeeded" {
+	Status := pod.Status.Phase
+	Labels := pod.GetLabels()
+	s := strings.Split(Labels["job-name"], "-")
+	topic := "job-event"
+	klog.Infof("My testing casa '%s' : '%s'", pod.GetName(), Status)
+	if Status == "Succeeded" {
 		//TODO: publish event
 		switch pod.Status.ContainerStatuses[0].State.Terminated.ExitCode {
 		case 0:
-			//success
+			klog.Infof("job successfully terminated: '%v'", pod.GetName())
+			msg := &message{
+				Project:  s[0],
+				Script:   s[1],
+				ExitCode: 0,
+			}
+			b, _ := json.Marshal(msg)
+			// publish message
+			c.producer.Produce(&kafka.Message{
+				TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
+				Value:          b,
+			}, nil)
 		default:
-			//faild
+			klog.Infof("job exception: '%v'", pod.GetName())
 		}
-		return nil
+	}
+
+	if Status == "Failed" {
+		msg := &message{
+			Project:  s[0],
+			Script:   s[1],
+			ExitCode: pod.Status.ContainerStatuses[0].State.Terminated.ExitCode,
+		}
+		b, _ := json.Marshal(msg)
+		// publish message
+		c.producer.Produce(&kafka.Message{
+			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
+			Value:          b,
+		}, nil)
 	}
 
 	return nil
@@ -263,9 +300,9 @@ func (c *Controller) enqueue(obj interface{}) {
 }
 
 // handleObject will take any resource implementing metav1.Object and attempt
-// to find the Foo resource that 'owns' it. It does this by looking at the
+// to find the Pod resource that control by job. It does this by looking at the
 // objects metadata.ownerReferences field for an appropriate OwnerReference.
-// It then enqueues that Foo resource to be processed. If the object does not
+// It then enqueues to be processed. If the object does not
 // have an appropriate OwnerReference, it will simply be skipped.
 func (c *Controller) handleObject(obj interface{}) {
 	var object metav1.Object
