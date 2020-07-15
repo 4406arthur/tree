@@ -17,13 +17,14 @@ limitations under the License.
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
-	"gopkg.in/confluentinc/confluent-kafka-go.v1/kafka"
-	_ "gopkg.in/confluentinc/confluent-kafka-go.v1/kafka/librdkafka"
+	kafka "github.com/segmentio/kafka-go"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -74,7 +75,7 @@ type Controller struct {
 	// recorder is an event recorder for recording Event resources to the
 	// Kubernetes API.
 	recorder record.EventRecorder
-	producer *kafka.Producer
+	producer *kafka.Writer
 }
 
 type message struct {
@@ -87,7 +88,7 @@ type message struct {
 func NewController(
 	kubeclientset kubernetes.Interface,
 	podInformer coreinformers.PodInformer,
-	producer *kafka.Producer) *Controller {
+	producer *kafka.Writer) *Controller {
 
 	klog.V(4).Info("Creating event broadcaster")
 	eventBroadcaster := record.NewBroadcaster()
@@ -243,44 +244,48 @@ func (c *Controller) syncHandler(key string) error {
 		return err
 	}
 
+	honstName, err := os.Hostname()
 	Status := pod.Status.Phase
 	Labels := pod.GetLabels()
 	s := strings.Split(Labels["job-name"], "-")
-	topic := "job-event"
+
 	klog.Infof("My testing casa '%s' : '%s'", pod.GetName(), Status)
 	if Status == "Succeeded" {
 		//TODO: publish event
 		switch pod.Status.ContainerStatuses[0].State.Terminated.ExitCode {
 		case 0:
 			klog.Infof("job successfully terminated: '%v'", pod.GetName())
-			msg := &message{
+			payload := &message{
 				Project:  s[0],
 				Script:   s[1],
 				ExitCode: 0,
 			}
-			b, _ := json.Marshal(msg)
+			payloadByte, _ := json.Marshal(payload)
 			// publish message
-			c.producer.Produce(&kafka.Message{
-				TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
-				Value:          b,
-			}, nil)
+			msg := kafka.Message{
+				Key:   []byte(fmt.Sprintf("host-%s", honstName)),
+				Value: payloadByte,
+			}
+			c.producer.WriteMessages(context.Background(), msg)
 		default:
 			klog.Infof("job exception: '%v'", pod.GetName())
 		}
 	}
 
 	if Status == "Failed" {
-		msg := &message{
+		klog.Infof("job failed: '%v'", pod.GetName())
+		payload := &message{
 			Project:  s[0],
 			Script:   s[1],
 			ExitCode: pod.Status.ContainerStatuses[0].State.Terminated.ExitCode,
 		}
-		b, _ := json.Marshal(msg)
+		payloadByte, _ := json.Marshal(payload)
 		// publish message
-		c.producer.Produce(&kafka.Message{
-			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
-			Value:          b,
-		}, nil)
+		msg := kafka.Message{
+			Key:   []byte(fmt.Sprintf("host-%s", honstName)),
+			Value: payloadByte,
+		}
+		c.producer.WriteMessages(context.Background(), msg)
 	}
 
 	return nil

@@ -27,10 +27,9 @@ import (
 
 	// Uncomment the following line to load the gcp plugin (only required to authenticate against GKE clusters).
 	// _ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
-	"gitlab.com/4406arthur/mlass_kubewatcher/pkg/controller"
-	"gitlab.com/4406arthur/mlass_kubewatcher/pkg/signals"
-	"gopkg.in/confluentinc/confluent-kafka-go.v1/kafka"
-	_ "gopkg.in/confluentinc/confluent-kafka-go.v1/kafka/librdkafka"
+	kafka "github.com/segmentio/kafka-go"
+	"gitlab.com/4406arthur/mlaas_kubewatcher/pkg/controller"
+	"gitlab.com/4406arthur/mlaas_kubewatcher/pkg/signals"
 )
 
 var (
@@ -57,15 +56,22 @@ func main() {
 
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
 
-	p, err := kafka.NewProducer(&kafka.ConfigMap{"bootstrap.servers": "35.223.134.204:32768"})
-	if err != nil {
-		panic(err)
-	}
+	// kafkaURL := os.Getenv("kafkaURL")
+	kafkaURL := "35.223.134.204:32768"
+	// topic := os.Getenv("topic")
+	topic := "job-event"
+	kafkaWriter := kafka.NewWriter(kafka.WriterConfig{
+		Brokers:  []string{kafkaURL},
+		Topic:    topic,
+		Balancer: &kafka.LeastBytes{},
+	})
+
+	defer kafkaWriter.Close()
 
 	controller := controller.NewController(
 		kubeClient,
 		kubeInformerFactory.Core().V1().Pods(),
-		p)
+		kafkaWriter)
 
 	// notice that there is no need to run Start methods in a separate goroutine. (i.e. go kubeInformerFactory.Start(stopCh)
 	// Start method is non-blocking and runs all registered informers in a dedicated goroutine.

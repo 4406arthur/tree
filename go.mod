@@ -1,10 +1,9 @@
-module gitlab.com/4406arthur/mlass_kubewatcher
+module gitlab.com/4406arthur/mlaas_kubewatcher
 
 go 1.14
 
 require (
-	github.com/confluentinc/confluent-kafka-go v1.4.2 // indirect
-	gopkg.in/confluentinc/confluent-kafka-go.v1 v1.4.2
+	github.com/segmentio/kafka-go v0.3.7
 	k8s.io/api v0.18.5
 	k8s.io/apimachinery v0.18.5
 	k8s.io/client-go v0.18.5

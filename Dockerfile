@@ -1,12 +1,8 @@
 # build stage
-FROM golang:1.14.4 AS build-env
+FROM golang:1.14-alpine AS build-env
+WORKDIR /src
 ADD . /src
-RUN \
-    apt-get update \
-    && apt-get install -y librdkafka-dev \
-    && cd /src \
-    # && go build -mod vendor -o /mlass_pod_watcher
-    && CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -mod vendor -o /mlass_pod_watcher
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod vendor -o /mlaas_pod_watcher
 
 # final stage
 FROM alpine:3.7
@@ -19,4 +15,4 @@ RUN \
 
 # EXPOSE 80 443
 
-ENTRYPOINT ["mlass_pod_watcher"]
+ENTRYPOINT ["mlaas_pod_watcher"]
