@@ -79,8 +79,7 @@ type Controller struct {
 }
 
 type message struct {
-	Project  string `json:"project"`
-	Script   string `json:"script"`
+	FromJob  string `json:"fromJob"`
 	ExitCode int32  `json:"exitCode"`
 }
 
@@ -256,8 +255,7 @@ func (c *Controller) syncHandler(key string) error {
 		case 0:
 			klog.Infof("job successfully terminated: '%v'", pod.GetName())
 			payload := &message{
-				Project:  s[0],
-				Script:   s[1],
+				FromJob:  s[0] + "-" + s[1],
 				ExitCode: 0,
 			}
 			payloadByte, _ := json.Marshal(payload)
@@ -275,8 +273,7 @@ func (c *Controller) syncHandler(key string) error {
 	if Status == "Failed" {
 		klog.Infof("job failed: '%v'", pod.GetName())
 		payload := &message{
-			Project:  s[0],
-			Script:   s[1],
+			FromJob:  s[0] + "-" + s[1],
 			ExitCode: pod.Status.ContainerStatuses[0].State.Terminated.ExitCode,
 		}
 		payloadByte, _ := json.Marshal(payload)

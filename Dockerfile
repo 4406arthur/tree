@@ -6,7 +6,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod vendor -o /mlaas_pod_wat
 
 # final stage
 FROM alpine:3.7
-COPY --from=build-env /mlass_pod_watcher /usr/local/bin
+COPY --from=build-env /mlaas_pod_watcher /usr/local/bin
 
 RUN \
     apk update \
