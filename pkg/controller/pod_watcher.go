@@ -257,7 +257,7 @@ func (c *Controller) syncHandler(key string) error {
 	Labels := pod.GetLabels()
 	s := strings.Split(Labels["job-name"], "-")
 
-	klog.Infof("My testing casa '%s' : '%s'", pod.GetName(), Status)
+	// klog.Infof("My testing casa '%s' : '%s'", pod.GetName(), Status)
 	if Status == "Succeeded" {
 		//TODO: publish event
 		switch pod.Status.ContainerStatuses[0].State.Terminated.ExitCode {
@@ -351,7 +351,11 @@ func (c *Controller) handleObject(obj interface{}) {
 
 func checkPodLabel(pod *v1.Pod, category string) bool {
 	if val, ok := pod.Labels["category"]; ok && val == category {
-		return true
+		// check job-name label too, we have specfic nameing logic here
+		jobLabel, exists := pod.Labels["job-name"]
+		if exists && strings.Contains(jobLabel, "-") {
+			return true
+		}
 	}
 	return false
 }
