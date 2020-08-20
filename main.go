@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	"os"
 	"time"
 
 	kubeinformers "k8s.io/client-go/informers"
@@ -55,11 +56,8 @@ func main() {
 	}
 
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
-
-	// kafkaURL := os.Getenv("kafkaURL")
-	kafkaURL := "35.223.134.204:32768"
-	// topic := os.Getenv("topic")
-	topic := "job-event"
+	kafkaURL := os.Getenv("KAFKA_URL")
+	topic := os.Getenv("KAFKA_TOPIC")
 	kafkaWriter := kafka.NewWriter(kafka.WriterConfig{
 		Brokers:  []string{kafkaURL},
 		Topic:    topic,

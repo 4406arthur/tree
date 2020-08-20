@@ -26,6 +26,7 @@ import (
 
 	kafka "github.com/segmentio/kafka-go"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -111,20 +112,29 @@ func NewController(
 	// handler will lookup the owner of the given Pod, and if it is
 	// owned by a Job will enqueue for processing.
 
-	podInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: controller.handleObject,
-		UpdateFunc: func(old, new interface{}) {
-			newPod := new.(*corev1.Pod)
-			oldPod := old.(*corev1.Pod)
-			if newPod.ResourceVersion == oldPod.ResourceVersion {
-				// Periodic resync will send update events for all known Deployments.
-				// Two different versions of the same Deployment will always have different RVs.
-				return
-			}
-			controller.handleObject(new)
-		},
-		DeleteFunc: controller.handleObject,
-	})
+	podInformer.Informer().AddEventHandler(
+		cache.FilteringResourceEventHandler{
+			FilterFunc: func(obj interface{}) bool {
+				switch t := obj.(type) {
+				case *v1.Pod:
+					return checkPodLabel(t, os.Getenv("POD_CATEGORY"))
+				default:
+					return false
+				}
+			},
+			Handler: cache.ResourceEventHandlerFuncs{
+				UpdateFunc: func(old, new interface{}) {
+					newPod := new.(*corev1.Pod)
+					oldPod := old.(*corev1.Pod)
+					if newPod.ResourceVersion == oldPod.ResourceVersion {
+						// Periodic resync will send update events for all known Deployments.
+						// Two different versions of the same Deployment will always have different RVs.
+						return
+					}
+					controller.handleObject(new)
+				},
+			},
+		})
 
 	return controller
 }
@@ -144,7 +154,7 @@ func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 	}
 
 	klog.Info("Starting workers")
-	// Launch two workers to process Foo resources
+	// Launch two workers to process
 	for i := 0; i < threadiness; i++ {
 		go wait.Until(c.runWorker, time.Second, stopCh)
 	}
@@ -220,8 +230,7 @@ func (c *Controller) processNextWorkItem() bool {
 }
 
 // syncHandler compares the actual state with the desired, and attempts to
-// converge the two. It then updates the Status block of the Foo resource
-// with the current status of the resource.
+// converge the two, injection business logic here
 func (c *Controller) syncHandler(key string) error {
 	// Convert the namespace/name string into a distinct namespace and name
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
@@ -324,8 +333,7 @@ func (c *Controller) handleObject(obj interface{}) {
 	}
 	klog.V(4).Infof("Processing object: %s", object.GetName())
 	if ownerRef := metav1.GetControllerOf(object); ownerRef != nil {
-		// If this object is not owned by a Foo, we should not do anything more
-		// with it.
+		// If this object is not owned by job kind, we should not do anything more
 		if ownerRef.Kind != "Job" {
 			return
 		}
@@ -339,4 +347,11 @@ func (c *Controller) handleObject(obj interface{}) {
 		c.enqueue(pod)
 		return
 	}
+}
+
+func checkPodLabel(pod *v1.Pod, category string) bool {
+	if val, ok := pod.Labels["category"]; ok && val == category {
+		return true
+	}
+	return false
 }

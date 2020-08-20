@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlaas-watcher
+  namespace: mlaas
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: mlaas-watcher
+  template:
+    metadata:
+      labels:
+        app: mlaas-watcher
+    spec:
+      containers:
+      - image: arthurma/ml-kubewatcher:v0.0.2-alpha
+        name: watcher
+        env:
+        - name: POD_CATEGORY
+          value: "mlaas-job"
+        - name: KAFKA_URL
+          value: "35.223.134.204:32768"
+        - name: KAFKA_TOPIC
+          value: "job-event"
