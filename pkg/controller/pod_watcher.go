@@ -255,7 +255,8 @@ func (c *Controller) syncHandler(key string) error {
 	honstName, err := os.Hostname()
 	Status := pod.Status.Phase
 	Labels := pod.GetLabels()
-	s := strings.Split(Labels["job-name"], "-")
+	indexEnd := strings.LastIndex(Labels["job-name"], "-")
+	s := Labels["job-name"][:indexEnd]
 
 	// klog.Infof("My testing casa '%s' : '%s'", pod.GetName(), Status)
 	if Status == "Succeeded" {
@@ -264,7 +265,7 @@ func (c *Controller) syncHandler(key string) error {
 		case 0:
 			klog.Infof("job successfully terminated: '%v'", pod.GetName())
 			payload := &message{
-				FromJob:  s[0] + "-" + s[1],
+				FromJob:  s,
 				ExitCode: 0,
 			}
 			payloadByte, _ := json.Marshal(payload)
@@ -282,7 +283,7 @@ func (c *Controller) syncHandler(key string) error {
 	if Status == "Failed" {
 		klog.Infof("job failed: '%v'", pod.GetName())
 		payload := &message{
-			FromJob:  s[0] + "-" + s[1],
+			FromJob:  s,
 			ExitCode: pod.Status.ContainerStatuses[0].State.Terminated.ExitCode,
 		}
 		payloadByte, _ := json.Marshal(payload)
@@ -353,7 +354,7 @@ func checkPodLabel(pod *v1.Pod, category string) bool {
 	if val, ok := pod.Labels["category"]; ok && val == category {
 		// check job-name label too, we have specfic nameing logic here
 		jobLabel, exists := pod.Labels["job-name"]
-		if exists && strings.Contains(jobLabel, "-") {
+		if exists && strings.Contains(jobLabel, ".") {
 			return true
 		}
 	}
