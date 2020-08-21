@@ -1,3 +1,8 @@
+
+```bash
+export KAFKA_URL="34.71.15.195:9092" KAFKA_TOPIC="job-enevt"
+```
+
 # mlass-job-watcher
 
 This repository implements a simple controller for watching Pods resources own by Job.
