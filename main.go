@@ -26,10 +26,13 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 
+	"github.com/gojektech/heimdall/v6"
+	"github.com/gojektech/heimdall/v6/httpclient"
+
 	// Uncomment the following line to load the gcp plugin (only required to authenticate against GKE clusters).
 	// _ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
-	kafka "github.com/segmentio/kafka-go"
 	"gitlab.com/4406arthur/mlaas_kubewatcher/pkg/controller"
+	"gitlab.com/4406arthur/mlaas_kubewatcher/pkg/reply"
 	"gitlab.com/4406arthur/mlaas_kubewatcher/pkg/signals"
 )
 
@@ -56,20 +59,20 @@ func main() {
 	}
 
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
-	kafkaURL := os.Getenv("KAFKA_URL")
-	topic := os.Getenv("KAFKA_TOPIC")
-	kafkaWriter := kafka.NewWriter(kafka.WriterConfig{
-		Brokers:  []string{kafkaURL},
-		Topic:    topic,
-		Balancer: &kafka.LeastBytes{},
-	})
 
-	defer kafkaWriter.Close()
+	//define a retry http cli
+	httpCli := httpclient.NewClient(
+		httpclient.WithHTTPTimeout(time.Duration(3)*time.Millisecond),
+		httpclient.WithRetryCount(2),
+		httpclient.WithRetrier(heimdall.NewRetrier(heimdall.NewConstantBackoff(500*time.Millisecond, 2000*time.Millisecond))),
+	)
+
+	controllerSDK := reply.NewControllerSDK(httpCli, os.Getenv("CONTROLLER_SERVICE_URL"))
 
 	controller := controller.NewController(
 		kubeClient,
 		kubeInformerFactory.Core().V1().Pods(),
-		kafkaWriter)
+		controllerSDK)
 
 	// notice that there is no need to run Start methods in a separate goroutine. (i.e. go kubeInformerFactory.Start(stopCh)
 	// Start method is non-blocking and runs all registered informers in a dedicated goroutine.

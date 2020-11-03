@@ -17,14 +17,10 @@ limitations under the License.
 package controller
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
-	kafka "github.com/segmentio/kafka-go"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -40,6 +36,8 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+
+	"gitlab.com/4406arthur/mlaas_kubewatcher/pkg/reply"
 )
 
 const controllerAgentName = "MLaasJobWatcher"
@@ -75,20 +73,15 @@ type Controller struct {
 	workqueue workqueue.RateLimitingInterface
 	// recorder is an event recorder for recording Event resources to the
 	// Kubernetes API.
-	recorder record.EventRecorder
-	producer *kafka.Writer
-}
-
-type message struct {
-	FromJob  string `json:"fromJob"`
-	ExitCode int32  `json:"exitCode"`
+	recorder      record.EventRecorder
+	controllerSDK *reply.ControllerSDK
 }
 
 // NewController returns a new sample controller
 func NewController(
 	kubeclientset kubernetes.Interface,
 	podInformer coreinformers.PodInformer,
-	producer *kafka.Writer) *Controller {
+	controllerSDK *reply.ControllerSDK) *Controller {
 
 	klog.V(4).Info("Creating event broadcaster")
 	eventBroadcaster := record.NewBroadcaster()
@@ -102,9 +95,9 @@ func NewController(
 		podsLister: podInformer.Lister(),
 		podsSynced: podInformer.Informer().HasSynced,
 
-		workqueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "watcher"),
-		recorder:  recorder,
-		producer:  producer,
+		workqueue:     workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "watcher"),
+		recorder:      recorder,
+		controllerSDK: controllerSDK,
 	}
 
 	klog.Info("Setting up event handlers")
@@ -239,42 +232,29 @@ func (c *Controller) syncHandler(key string) error {
 		return nil
 	}
 
-	// Get the Foo resource with this namespace/name
+	// Get the pods resource with this namespace/name
 	pod, err := c.podsLister.Pods(namespace).Get(name)
+
 	if err != nil {
-		// The Foo resource may no longer exist, in which case we stop
+		// The Pod resource may no longer exist, in which case we stop
 		// processing.
 		if errors.IsNotFound(err) {
-			utilruntime.HandleError(fmt.Errorf("foo '%s' in work queue no longer exists", key))
+			utilruntime.HandleError(fmt.Errorf("Pod '%s' in work queue no longer exists", name))
 			return nil
 		}
 
 		return err
 	}
 
-	honstName, err := os.Hostname()
 	Status := pod.Status.Phase
 	Labels := pod.GetLabels()
-	indexEnd := strings.LastIndex(Labels["job-name"], "-")
-	s := Labels["job-name"][:indexEnd]
+	jobName := Labels["job-name"]
 
-	// klog.Infof("My testing casa '%s' : '%s'", pod.GetName(), Status)
 	if Status == "Succeeded" {
-		//TODO: publish event
 		switch pod.Status.ContainerStatuses[0].State.Terminated.ExitCode {
 		case 0:
 			klog.Infof("job successfully terminated: '%v'", pod.GetName())
-			payload := &message{
-				FromJob:  s,
-				ExitCode: 0,
-			}
-			payloadByte, _ := json.Marshal(payload)
-			// publish message
-			msg := kafka.Message{
-				Key:   []byte(fmt.Sprintf("host-%s", honstName)),
-				Value: payloadByte,
-			}
-			c.producer.WriteMessages(context.Background(), msg)
+			c.controllerSDK.Reply(jobName, true)
 		default:
 			klog.Infof("job exception: '%v'", pod.GetName())
 		}
@@ -282,17 +262,8 @@ func (c *Controller) syncHandler(key string) error {
 
 	if Status == "Failed" {
 		klog.Infof("job failed: '%v'", pod.GetName())
-		payload := &message{
-			FromJob:  s,
-			ExitCode: pod.Status.ContainerStatuses[0].State.Terminated.ExitCode,
-		}
-		payloadByte, _ := json.Marshal(payload)
-		// publish message
-		msg := kafka.Message{
-			Key:   []byte(fmt.Sprintf("host-%s", honstName)),
-			Value: payloadByte,
-		}
-		c.producer.WriteMessages(context.Background(), msg)
+		c.controllerSDK.Reply(jobName, false)
+		//TODO: Send Mail
 	}
 
 	return nil
@@ -353,10 +324,11 @@ func (c *Controller) handleObject(obj interface{}) {
 func checkPodLabel(pod *v1.Pod, category string) bool {
 	if val, ok := pod.Labels["category"]; ok && val == category {
 		// check job-name label too, we have specfic nameing logic here
-		jobLabel, exists := pod.Labels["job-name"]
-		if exists && strings.Contains(jobLabel, ".") {
-			return true
-		}
+		// jobLabel, exists := pod.Labels["job-name"]
+		// if exists && strings.Contains(jobLabel, ".") {
+		// 	return true
+		// }
+		return true
 	}
 	return false
 }

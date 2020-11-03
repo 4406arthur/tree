@@ -15,12 +15,10 @@ spec:
         app: mlaas-watcher
     spec:
       containers:
-      - image: arthurma/ml-kubewatcher:v0.0.6-alpha
+      - image: arthurma/ml-kubewatcher:v0.0.1-beta
         name: watcher
         env:
         - name: POD_CATEGORY
           value: "mlaas-job"
-        - name: KAFKA_URL
-          value: "34.71.15.195:9092"
-        - name: KAFKA_TOPIC
-          value: "job-event"
+        - name: CONTROLLER_SERVICE_URL
+          value: "34.71.15.195:9000"
