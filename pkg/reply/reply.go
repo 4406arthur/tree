@@ -17,6 +17,7 @@ type ControllerSDK struct {
 
 type status struct {
 	JobID   string `json:"jobID"`
+	JobType string `json:"jobType"`
 	Success bool   `json:"success"`
 }
 
@@ -33,6 +34,7 @@ func (c *ControllerSDK) Reply(jobID string, success bool) error {
 	endpoint := c.url + "/finish"
 	payload, _ := ffjson.Marshal(&status{
 		JobID:   jobID,
+		JobType: "model",
 		Success: success,
 	})
 	headers := http.Header{}
