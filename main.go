@@ -62,7 +62,7 @@ func main() {
 
 	//define a retry http cli
 	httpCli := httpclient.NewClient(
-		httpclient.WithHTTPTimeout(time.Duration(3)*time.Millisecond),
+		httpclient.WithHTTPTimeout(time.Duration(1500)*time.Millisecond),
 		httpclient.WithRetryCount(2),
 		httpclient.WithRetrier(heimdall.NewRetrier(heimdall.NewConstantBackoff(500*time.Millisecond, 2000*time.Millisecond))),
 	)
