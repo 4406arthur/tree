@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -38,6 +39,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"gitlab.com/4406arthur/mlaas_kubewatcher/pkg/reply"
+	"gitlab.com/4406arthur/mlaas_kubewatcher/pkg/webhook"
 )
 
 const controllerAgentName = "MLaasJobWatcher"
@@ -250,20 +252,35 @@ func (c *Controller) syncHandler(key string) error {
 	Labels := pod.GetLabels()
 	jobName := Labels["job-name"]
 
-	if Status == "Succeeded" {
-		switch pod.Status.ContainerStatuses[0].State.Terminated.ExitCode {
-		case 0:
-			klog.Infof("job successfully terminated: '%v'", pod.GetName())
-			c.controllerSDK.Reply(jobName, true)
-		default:
-			klog.Infof("job exception: '%v'", pod.GetName())
+	if Status == "Succeeded" && pod.Status.ContainerStatuses[0].State.Terminated.ExitCode == int32(0) {
+		klog.Infof("job successfully terminated: '%v'", pod.GetName())
+		err = c.controllerSDK.Reply(jobName, true)
+		if err != nil {
+			klog.Infof("callback to controller failed: '%s'", err.Error())
+		}
+		if Labels["webhook-enable"] == "true" {
+			annotations, _ := getJobAnnotation(c.kubeclientset, jobName, namespace)
+			err = webhook.Callback(annotations["webhook-endpoint"], true, annotations["webhook-payload"])
+			if err != nil {
+				klog.Infof("webhook invoke failed: '%s'", err.Error())
+			}
 		}
 	}
 
 	if Status == "Failed" {
 		klog.Infof("job failed: '%v'", pod.GetName())
-		c.controllerSDK.Reply(jobName, false)
+		err = c.controllerSDK.Reply(jobName, false)
+		if err != nil {
+			klog.Infof("callback to controller failed: '%s'", err.Error())
+		}
 		//TODO: Send Mail
+		if Labels["webhook-enable"] == "true" {
+			annotations, _ := getJobAnnotation(c.kubeclientset, jobName, namespace)
+			err = webhook.Callback(annotations["webhook-endpoint"], false, annotations["webhook-payload"])
+			if err != nil {
+				klog.Infof("webhook invoke failed: '%s'", err.Error())
+			}
+		}
 	}
 
 	return nil
@@ -282,11 +299,8 @@ func (c *Controller) enqueue(obj interface{}) {
 	c.workqueue.Add(key)
 }
 
-// handleObject will take any resource implementing metav1.Object and attempt
-// to find the Pod resource that control by job. It does this by looking at the
-// objects metadata.ownerReferences field for an appropriate OwnerReference.
-// It then enqueues to be processed. If the object does not
-// have an appropriate OwnerReference, it will simply be skipped.
+// handleObject will take any resource implementing metav1.Object.DeepCopyObject
+// If the object does not have an appropriate config, it will simply be skipped.
 func (c *Controller) handleObject(obj interface{}) {
 	var object metav1.Object
 	var ok bool
@@ -304,21 +318,29 @@ func (c *Controller) handleObject(obj interface{}) {
 		klog.V(4).Infof("Recovered deleted object '%s' from tombstone", object.GetName())
 	}
 	klog.V(4).Infof("Processing object: %s", object.GetName())
-	if ownerRef := metav1.GetControllerOf(object); ownerRef != nil {
-		// If this object is not owned by job kind, we should not do anything more
-		if ownerRef.Kind != "Job" {
-			return
-		}
-
-		pod, err := c.podsLister.Pods(object.GetNamespace()).Get(object.GetName())
-		if err != nil {
-			klog.V(4).Infof("ignoring orphaned object '%s' of '%s'", object.GetSelfLink(), ownerRef.Name)
-			return
-		}
-
-		c.enqueue(pod)
+	pod, err := c.podsLister.Pods(object.GetNamespace()).Get(object.GetName())
+	if err != nil {
+		klog.V(4).Infof("ignoring orphaned object '%s' of '%s'", object.GetSelfLink(), object.GetName())
 		return
 	}
+	c.enqueue(pod)
+	return
+
+	// if ownerRef := metav1.GetControllerOf(object); ownerRef != nil {
+	// 	// If this object is not owned by job kind, we should not do anything more
+	// 	if ownerRef.Kind != "Job" {
+	// 		return
+	// 	}
+
+	// 	pod, err := c.podsLister.Pods(object.GetNamespace()).Get(object.GetName())
+	// 	if err != nil {
+	// 		klog.V(4).Infof("ignoring orphaned object '%s' of '%s'", object.GetSelfLink(), ownerRef.Name)
+	// 		return
+	// 	}
+
+	// 	c.enqueue(pod)
+	// 	return
+	// }
 }
 
 func checkPodLabel(pod *v1.Pod, category string) bool {
@@ -331,4 +353,12 @@ func checkPodLabel(pod *v1.Pod, category string) bool {
 		return true
 	}
 	return false
+}
+
+func getJobAnnotation(clientset kubernetes.Interface, jobName, namespace string) (map[string]string, error) {
+	job, err := clientset.BatchV1().Jobs(namespace).Get(context.TODO(), jobName, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return job.GetAnnotations(), nil
 }
