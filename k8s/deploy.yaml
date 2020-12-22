@@ -15,14 +15,14 @@ spec:
         app: mlaas-watcher
     spec:
       containers:
-      - image: arthurma/ml-kubewatcher:v1.0.3
+      - image: arthurma/tree:v1.0.0
         name: watcher
         env:
         - name: POD_CATEGORY
           value: "mlaas-job"
         - name: CONTROLLER_SERVICE_URL
-          value: "34.71.15.195:9000"
+          value: "http://34.71.15.195:9000"
         - name: AZP_MAPPING_BRANCH
-          value: "developer"
+          value: "develop"
         - name: AZP_PAT
           value: "xxxxxxxxxxx"

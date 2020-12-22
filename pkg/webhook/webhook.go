@@ -16,7 +16,7 @@ type AzureDevOpsBuildRQ struct {
 }
 
 type Definition struct {
-	ID string `json:"id"`
+	ID int `json:"id"`
 }
 
 //Callback ...
@@ -32,7 +32,7 @@ func Callback(endpoint string, status bool, extraInfo string) error {
 	rq.SourceBranch = os.Getenv("AZP_MAPPING_BRANCH")
 	jsonRQ, _ := json.Marshal(rq)
 
-	klog.Infof("webhook payload: %s %s %s", endpoint, string(jsonRQ))
+	klog.Infof("webhook payload: %s %s", endpoint, string(jsonRQ))
 	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonRQ))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Basic "+os.Getenv("AZP_PAT"))
